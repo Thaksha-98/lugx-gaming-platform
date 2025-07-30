@@ -7,7 +7,7 @@ on:
 jobs:
   # --- Job 1: Determine Blue or Green based on run number ---
   determine-color:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     outputs:
       new_version: ${{ steps.set-color.outputs.new_color }}
       old_version: ${{ steps.set-color.outputs.old_color }}
@@ -26,7 +26,7 @@ jobs:
   # --- Job 2: Deploy (depends on determine-color) ---
   deploy:
     needs: determine-color
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     env:
       NEW_VERSION: ${{ needs.determine-color.outputs.new_version }}
       OLD_VERSION: ${{ needs.determine-color.outputs.old_version }}
