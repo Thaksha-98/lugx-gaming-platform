@@ -1,0 +1,53 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: lugx-game-service
+  namespace: lugx
+  labels:
+    release: prometheus  # 🔥 Must match your Helm release name
+spec:
+  selector:
+    matchLabels:
+      app: game-service
+  namespaceSelector:
+    any: true
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: lugx-order-service
+  namespace: lugx
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: order-service
+  namespaceSelector:
+    any: true
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: lugx-analytics-service
+  namespace: lugx
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: analytics-service
+  namespaceSelector:
+    any: true
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 15s

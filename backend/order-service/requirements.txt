@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+psycopg2-binary
+pydantic
+prometheus-client==0.17.0
+starlette-prometheus==0.10.0

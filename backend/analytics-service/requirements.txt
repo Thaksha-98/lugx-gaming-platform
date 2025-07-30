@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+aiohttp
+pydantic
+clickhouse-connect
+prometheus-client==0.17.0
+starlette-prometheus==0.10.0

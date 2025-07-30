@@ -1,0 +1,55 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: clickhouse-to-s3
+  namespace: lugx
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: exporter
+              image: python:3.9-slim
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  pip install --no-cache-dir --prefix=/usr/local boto3 pandas clickhouse-connect &&
+                  python3 - <<EOF
+                  import sys
+                  import os
+                  sys.path.append('/usr/local/lib/python3.9/site-packages')
+                  
+                  import boto3
+                  import pandas as pd
+                  import clickhouse_connect
+
+                  client = clickhouse_connect.get_client(host='clickhouse.lugx.svc.cluster.local', port=8123)
+                  df = client.query_df('SELECT * FROM web_analytics')
+
+                  s3 = boto3.client(
+                      's3',
+                      region_name='us-east-1',
+                      aws_access_key_id=os.getenv("AWS_ACCESS_KEY"),
+                      aws_secret_access_key=os.getenv("AWS_SECRET_KEY")
+                  )
+
+                  s3.put_object(
+                      Bucket='lugx-analytics-data-thaksha',
+                      Key=f'web_analytics_{pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")}.csv',
+                      Body=df.to_csv(index=False)
+                  )
+                  EOF
+              env:
+                - name: AWS_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-credentials
+                      key: AWS_ACCESS_KEY
+                - name: AWS_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-credentials
+                      key: AWS_SECRET_KEY
