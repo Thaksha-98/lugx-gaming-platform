@@ -1,21 +1,25 @@
+---
+# Blue Version
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: order-service
+  name: order-service-blue
   namespace: lugx
 spec:
   replicas: 2
   selector:
     matchLabels:
       app: order-service
+      version: blue
   template:
     metadata:
       labels:
         app: order-service
+        version: blue
     spec:
       containers:
       - name: order-service
-        image: thaksha98/lugx-order-service:v1
+        image: thaksha98/lugx-order-service:blue
         ports:
         - containerPort: 8000
         resources:
@@ -26,12 +30,44 @@ spec:
             memory: "256Mi"
             cpu: "400m"
 ---
+# Green Version
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service-green
+  namespace: lugx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: order-service
+      version: green
+  template:
+    metadata:
+      labels:
+        app: order-service
+        version: green
+    spec:
+      containers:
+      - name: order-service
+        image: thaksha98/lugx-order-service:green
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "200m"
+          limits:
+            memory: "256Mi"
+            cpu: "400m"
+---
+# Stable Service
 apiVersion: v1
 kind: Service
 metadata:
   name: order-service
   namespace: lugx
-  labels:  # 🔥 Add this
+  labels:
     app: order-service
   annotations:
     prometheus.io/scrape: "true"
@@ -40,6 +76,7 @@ metadata:
 spec:
   selector:
     app: order-service
+    version: blue   # 👉 Initially points to Blue
   ports:
     - name: http
       protocol: TCP

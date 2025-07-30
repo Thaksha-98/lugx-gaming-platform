@@ -1,21 +1,25 @@
+---
+# Blue Version
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: game-service
+  name: game-service-blue
   namespace: lugx
 spec:
   replicas: 2
   selector:
     matchLabels:
       app: game-service
+      version: blue
   template:
     metadata:
       labels:
         app: game-service
+        version: blue
     spec:
       containers:
       - name: game-service
-        image: thaksha98/lugx-game-service:v1
+        image: thaksha98/lugx-game-service:blue
         ports:
         - containerPort: 8000
         resources:
@@ -26,12 +30,44 @@ spec:
             memory: "256Mi"
             cpu: "400m"
 ---
+# Green Version
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: game-service-green
+  namespace: lugx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: game-service
+      version: green
+  template:
+    metadata:
+      labels:
+        app: game-service
+        version: green
+    spec:
+      containers:
+      - name: game-service
+        image: thaksha98/lugx-game-service:green
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "200m"
+          limits:
+            memory: "256Mi"
+            cpu: "400m"
+---
+# Stable Service (routes traffic to current active version)
 apiVersion: v1
 kind: Service
 metadata:
   name: game-service
   namespace: lugx
-  labels:  # 🔥 Add this
+  labels:
     app: game-service
   annotations:
     prometheus.io/scrape: "true"
@@ -40,6 +76,7 @@ metadata:
 spec:
   selector:
     app: game-service
+    version: blue   # 👉 Initially points to Blue
   ports:
     - name: http
       protocol: TCP

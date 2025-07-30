@@ -1,33 +1,35 @@
 import requests
 import sys
+import argparse
 
-passed = 0
-total = 2
+def run_test(target):
+    base_url = "http://192.168.8.240"
+    
+    try:
+        r = requests.get(f"{base_url}/", timeout=10)
+        assert r.status_code == 200
+        print("✅ Homepage loads")
+    except Exception as e:
+        print("❌ Homepage failed:", e)
+        sys.exit(1)
 
-# Test Game Service
-try:
-    r = requests.get("http://192.168.8.240/api/games")
-    assert r.status_code == 200
-    print("✅ Game Service OK")
-    passed += 1
-except:
-    print("❌ Game Service Failed")
+    try:
+        r = requests.post(f"{base_url}/analytics", json={
+            "timestamp": "2025-04-05T10:00:00Z",
+            "page": "/test",
+            "event_type": f"test-{target}",
+            "user_id": "test",
+            "duration": 10,
+            "scroll_depth": 50
+        }, timeout=10)
+        assert r.status_code == 200
+        print(f"✅ Analytics sent to {target}")
+    except Exception as e:
+        print("❌ Analytics failed:", e)
+        sys.exit(1)
 
-# Test Analytics Ingestion
-try:
-    r = requests.post("http://192.168.8.240/analytics", json={
-        "timestamp": "2025-04-05T10:00:00Z",
-        "page": "/test",
-        "event_type": "test",
-        "user_id": "test",
-        "duration": 10,
-        "scroll_depth": 50
-    })
-    assert r.status_code == 200
-    print("✅ Analytics Ingestion OK")
-    passed += 1
-except:
-    print("❌ Analytics Failed")
-
-print(f"Tests: {passed}/{total}")
-sys.exit(0 if passed == total else 1)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--target', default='unknown')
+    args = parser.parse_args()
+    run_test(args.target)

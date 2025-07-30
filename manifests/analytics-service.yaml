@@ -1,30 +1,59 @@
+---
+# Blue Version
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: analytics-service
+  name: analytics-service-blue
   namespace: lugx
 spec:
   replicas: 2
   selector:
     matchLabels:
       app: analytics-service
+      version: blue
   template:
     metadata:
       labels:
         app: analytics-service
+        version: blue
     spec:
       containers:
       - name: analytics-service
-        image: thaksha98/lugx-analytics-service:v1
+        image: thaksha98/lugx-analytics-service:blue
         ports:
         - containerPort: 8000
 ---
+# Green Version
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-service-green
+  namespace: lugx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: analytics-service
+      version: green
+  template:
+    metadata:
+      labels:
+        app: analytics-service
+        version: green
+    spec:
+      containers:
+      - name: analytics-service
+        image: thaksha98/lugx-analytics-service:green
+        ports:
+        - containerPort: 8000
+---
+# Stable Service
 apiVersion: v1
 kind: Service
 metadata:
   name: analytics-service
   namespace: lugx
-  labels:  # 🔥 Add this
+  labels:
     app: analytics-service
   annotations:
     prometheus.io/scrape: "true"
@@ -33,6 +62,7 @@ metadata:
 spec:
   selector:
     app: analytics-service
+    version: blue   # 👉 Initially points to Blue
   ports:
     - name: http
       protocol: TCP
