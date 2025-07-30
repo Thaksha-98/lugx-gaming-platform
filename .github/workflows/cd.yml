@@ -74,9 +74,13 @@ jobs:
 
           # Update deployments
           kubectl set image deployment/frontend-deployment-$NEW_VERSION frontend=$DOCKER_REPO/lugx-frontend:$NEW_VERSION -n $NS
+          kubectl scale deployment frontend-deployment-$NEW_VERSION --replicas=2 -n $NS
           kubectl set image deployment/game-service-$NEW_VERSION game-service=$DOCKER_REPO/lugx-game-service:$NEW_VERSION -n $NS
+          kubectl scale deployment game-service-$NEW_VERSION --replicas=2 -n $NS
           kubectl set image deployment/order-service-$NEW_VERSION order-service=$DOCKER_REPO/lugx-order-service:$NEW_VERSION -n $NS
+          kubectl scale deployment order-service-$NEW_VERSION --replicas=2 -n $NS
           kubectl set image deployment/analytics-service-$NEW_VERSION analytics-service=$DOCKER_REPO/lugx-analytics-service:$NEW_VERSION -n $NS
+          kubectl scale deployment analytics-service-$NEW_VERSION --replicas=2 -n $NS
 
           # Wait for rollouts
           kubectl rollout status deployment/frontend-deployment-$NEW_VERSION -n $NS --timeout=180s
