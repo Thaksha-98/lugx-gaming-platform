@@ -1,4 +1,4 @@
-name: Lugx Gaming CI/CD Pipeline (Optimized)
+name: Lugx Gaming CI/CD Pipeline (Fast & Reliable)
 
 on:
   push:
@@ -7,7 +7,6 @@ on:
 env:
   DOCKER_REPO: thaksha98
   KUBE_NAMESPACE: lugx
-  GIT_SHA: ${{ github.sha }}
 
 jobs:
   determine-color:
@@ -31,9 +30,10 @@ jobs:
     needs: determine-color
     runs-on: self-hosted
     env:
+      DOCKER_REPO: thaksha98
+      KUBE_NAMESPACE: lugx
       NEW_VERSION: ${{ needs.determine-color.outputs.new_version }}
       OLD_VERSION: ${{ needs.determine-color.outputs.old_version }}
-      DOCKER_REPO: thaksha98
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -44,23 +44,23 @@ jobs:
 
       - name: Build and Push Frontend
         run: |
-          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/lugx-frontend:${{ needs.determine-color.outputs.new_version }} frontend/
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/lugx-frontend:${{ needs.determine-color.outputs.new_version }}
+          docker build -t $DOCKER_REPO/lugx-frontend:$NEW_VERSION frontend/
+          docker push $DOCKER_REPO/lugx-frontend:$NEW_VERSION
 
       - name: Build and Push Game Service
         run: |
-          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/lugx-game-service:${{ needs.determine-color.outputs.new_version }} backend/game-service/
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/lugx-game-service:${{ needs.determine-color.outputs.new_version }}
+          docker build -t $DOCKER_REPO/lugx-game-service:$NEW_VERSION backend/game-service/
+          docker push $DOCKER_REPO/lugx-game-service:$NEW_VERSION
 
       - name: Build and Push Order Service
         run: |
-          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/lugx-order-service:${{ needs.determine-color.outputs.new_version }} backend/order-service/
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/lugx-order-service:${{ needs.determine-color.outputs.new_version }}
+          docker build -t $DOCKER_REPO/lugx-order-service:$NEW_VERSION backend/order-service/
+          docker push $DOCKER_REPO/lugx-order-service:$NEW_VERSION
 
       - name: Build and Push Analytics Service
         run: |
-          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/lugx-analytics-service:${{ needs.determine-color.outputs.new_version }} backend/analytics-service/
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/lugx-analytics-service:${{ needs.determine-color.outputs.new_version }}
+          docker build -t $DOCKER_REPO/lugx-analytics-service:$NEW_VERSION backend/analytics-service/
+          docker push $DOCKER_REPO/lugx-analytics-service:$NEW_VERSION
 
       - name: Configure KUBECONFIG
         run: |
@@ -68,54 +68,38 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
           chmod 600 ~/.kube/config
 
-      - name: Deploy & Switch Traffic
+      - name: Deploy & Switch Traffic (Blue-Green)
         run: |
-          export NS=lugx
-          export NEW_COLOR=${{ needs.determine-color.outputs.new_version }}
-          export OLD_COLOR=${{ needs.determine-color.outputs.old_version }}
-          export DOCKER_REPO=${{ secrets.DOCKERHUB_USERNAME }}
+          export NS=$KUBE_NAMESPACE
 
-          # Update new deployments
-          kubectl set image deployment/frontend-deployment-$NEW_COLOR   frontend=$DOCKER_REPO/lugx-frontend:$NEW_COLOR   -n $NS
-          kubectl set image deployment/game-service-$NEW_COLOR         game-service=$DOCKER_REPO/lugx-game-service:$NEW_COLOR         -n $NS
-          kubectl set image deployment/order-service-$NEW_COLOR        order-service=$DOCKER_REPO/lugx-order-service:$NEW_COLOR        -n $NS
-          kubectl set image deployment/analytics-service-$NEW_COLOR    analytics-service=$DOCKER_REPO/lugx-analytics-service:$NEW_COLOR    -n $NS
+          # Update deployments
+          kubectl set image deployment/frontend-deployment-$NEW_VERSION frontend=$DOCKER_REPO/lugx-frontend:$NEW_VERSION -n $NS
+          kubectl set image deployment/game-service-$NEW_VERSION game-service=$DOCKER_REPO/lugx-game-service:$NEW_VERSION -n $NS
+          kubectl set image deployment/order-service-$NEW_VERSION order-service=$DOCKER_REPO/lugx-order-service:$NEW_VERSION -n $NS
+          kubectl set image deployment/analytics-service-$NEW_VERSION analytics-service=$DOCKER_REPO/lugx-analytics-service:$NEW_VERSION -n $NS
 
-          # Wait for rollouts with retries
-          for i in {1..3}; do
-            echo "Attempt $i: Waiting for rollouts..."
-            kubectl rollout status deployment/frontend-deployment-$NEW_COLOR   -n $NS --timeout=180s || continue
-            kubectl rollout status deployment/game-service-$NEW_COLOR         -n $NS --timeout=180s || continue
-            kubectl rollout status deployment/order-service-$NEW_COLOR        -n $NS --timeout=180s || continue
-            kubectl rollout status deployment/analytics-service-$NEW_COLOR    -n $NS --timeout=180s || continue
-            break
-          done
-
-          # If all attempts fail, exit with error
-          if [ $i -eq 3 ]; then
-            echo "❌ Rollout failed after 3 attempts"
-            exit 1
-          fi
+          # Wait for rollouts
+          kubectl rollout status deployment/frontend-deployment-$NEW_VERSION -n $NS --timeout=60s
+          kubectl rollout status deployment/game-service-$NEW_VERSION -n $NS --timeout=60s
+          kubectl rollout status deployment/order-service-$NEW_VERSION -n $NS --timeout=60s
+          kubectl rollout status deployment/analytics-service-$NEW_VERSION -n $NS --timeout=60s
 
           # Switch traffic
-          kubectl patch service frontend-service     -n $NS -p "{\"spec\":{\"selector\":{\"version\":\"$NEW_COLOR\"}}}"
-          kubectl patch service game-service         -n $NS -p "{\"spec\":{\"selector\":{\"version\":\"$NEW_COLOR\"}}}"
-          kubectl patch service order-service        -n $NS -p "{\"spec\":{\"selector\":{\"version\":\"$NEW_COLOR\"}}}"
-          kubectl patch service analytics-service    -n $NS -p "{\"spec\":{\"selector\":{\"version\":\"$NEW_COLOR\"}}}"
+          kubectl patch service frontend-service -n $NS -p '{"spec":{"selector":{"version":"'$NEW_VERSION'"}}}'
+          kubectl patch service game-service -n $NS -p '{"spec":{"selector":{"version":"'$NEW_VERSION'"}}}'
+          kubectl patch service order-service -n $NS -p '{"spec":{"selector":{"version":"'$NEW_VERSION'"}}}'
+          kubectl patch service analytics-service -n $NS -p '{"spec":{"selector":{"version":"'$NEW_VERSION'"}}}'
 
-          echo "✅ Traffic switched to $NEW_COLOR"
+          echo "✅ Traffic switched to $NEW_VERSION"
 
-          # Scale down old (only if old_color is not empty)
-          if [ -n "$OLD_COLOR" ] && [ "$OLD_COLOR" != " " ]; then
-            kubectl scale deployment frontend-deployment-$OLD_COLOR --replicas=0 -n $NS
-            kubectl scale deployment game-service-$OLD_COLOR --replicas=0 -n $NS
-            kubectl scale deployment order-service-$OLD_COLOR --replicas=0 -n $NS
-            kubectl scale deployment analytics-service-$OLD_COLOR --replicas=0 -n $NS
-            echo "🗑️ Old ($OLD_COLOR) deployments scaled down"
-          else
-            echo "🟡 First deploy — no old version to scale down"
+          # Scale down old version (only if different from new)
+          if [ "$OLD_VERSION" != "$NEW_VERSION" ]; then
+            kubectl scale deployment frontend-deployment-$OLD_VERSION --replicas=0 -n $NS || echo "⚠️ Old frontend-deployment-$OLD_VERSION not found"
+            kubectl scale deployment game-service-$OLD_VERSION --replicas=0 -n $NS || echo "⚠️ Old game-service-$OLD_VERSION not found"
+            kubectl scale deployment order-service-$OLD_VERSION --replicas=0 -n $NS || echo "⚠️ Old order-service-$OLD_VERSION not found"
+            kubectl scale deployment analytics-service-$OLD_VERSION --replicas=0 -n $NS || echo "⚠️ Old analytics-service-$OLD_VERSION not found"
           fi
 
       - name: Run Integration Tests
         run: |
-          python3 tests/test_api.py --target $NEW_COLOR --base-url http://192.168.8.240
+          python3 tests/test_api.py --target $NEW_VERSION --base-url http://192.168.8.240
