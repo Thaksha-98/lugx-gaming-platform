@@ -4,36 +4,33 @@ on:
   push:
     branches: [ main ]
 
-env:
-  DOCKER_REPO: thaksha98
-  # Toggle between blue and green based on run number (even = blue, odd = green)
-  NEW_VERSION: ${{ steps.toggle_version.outputs.color }}
-  OLD_VERSION: ${{ steps.toggle_version.outputs.old_color }}
-
 jobs:
+  # --- Job 1: Determine Blue or Green based on run number ---
   determine-color:
     runs-on: ubuntu-latest
     outputs:
-      color: ${{ steps.set-color.outputs.result }}
-      old_color: ${{ steps.set-color.outputs.old_result }}
+      new_version: ${{ steps.set-color.outputs.new_color }}
+      old_version: ${{ steps.set-color.outputs.old_color }}
     steps:
       - id: set-color
         run: |
           run_num=${{ github.run_number }}
           if (( run_num % 2 == 0 )); then
-            echo "result=blue" >> $GITHUB_OUTPUT
-            echo "old_result=green" >> $GITHUB_OUTPUT
+            echo "new_color=blue" >> $GITHUB_OUTPUT
+            echo "old_color=green" >> $GITHUB_OUTPUT
           else
-            echo "result=green" >> $GITHUB_OUTPUT
-            echo "old_result=blue" >> $GITHUB_OUTPUT
+            echo "new_color=green" >> $GITHUB_OUTPUT
+            echo "old_color=blue" >> $GITHUB_OUTPUT
           fi
 
+  # --- Job 2: Deploy (depends on determine-color) ---
   deploy:
     needs: determine-color
     runs-on: ubuntu-latest
     env:
-      NEW_VERSION: ${{ needs.determine-color.outputs.color }}
-      OLD_VERSION: ${{ needs.determine-color.outputs.old_color }}
+      NEW_VERSION: ${{ needs.determine-color.outputs.new_version }}
+      OLD_VERSION: ${{ needs.determine-color.outputs.old_version }}
+      DOCKER_REPO: thaksha98
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -51,7 +48,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # ─────────────────────────────────────────────────────────────
-      # 🔵🟢 Build and Push Images: Frontend, Game, Order, Analytics
+      # 🔵🟢 Build and Push Images
       # ─────────────────────────────────────────────────────────────
       - name: Build and Push Frontend (${{ env.NEW_VERSION }})
         uses: docker/build-push-action@v5
@@ -82,29 +79,24 @@ jobs:
           context: backend/analytics-service
 
       # ─────────────────────────────────────────────────────────────
-      # ☸️ Deploy to Kubernetes Cluster
+      # ☸️ Deploy to Kubernetes
       # ─────────────────────────────────────────────────────────────
       - name: Deploy New Version to Kubernetes
         env:
           KUBECONFIG_DATA: ${{ secrets.KUBE_CONFIG }}
         run: |
-          # Decode kubeconfig
           echo "$KUBECONFIG_DATA" | base64 -d > ./kubeconfig
           export KUBECONFIG=./kubeconfig
 
-          # Set new version images
           kubectl set image deployment/frontend-deployment-${{ env.NEW_VERSION }}   frontend=${{ env.DOCKER_REPO }}/lugx-frontend:${{ env.NEW_VERSION }}   -n lugx
           kubectl set image deployment/game-service-${{ env.NEW_VERSION }}         game-service=${{ env.DOCKER_REPO }}/lugx-game-service:${{ env.NEW_VERSION }}         -n lugx
           kubectl set image deployment/order-service-${{ env.NEW_VERSION }}        order-service=${{ env.DOCKER_REPO }}/lugx-order-service:${{ env.NEW_VERSION }}        -n lugx
           kubectl set image deployment/analytics-service-${{ env.NEW_VERSION }}    analytics-service=${{ env.DOCKER_REPO }}/lugx-analytics-service:${{ env.NEW_VERSION }}    -n lugx
 
-          # Wait for rollouts
           kubectl rollout status deployment/frontend-deployment-${{ env.NEW_VERSION }}   -n lugx --timeout=60s
           kubectl rollout status deployment/game-service-${{ env.NEW_VERSION }}         -n lugx --timeout=60s
           kubectl rollout status deployment/order-service-${{ env.NEW_VERSION }}        -n lugx --timeout=60s
           kubectl rollout status deployment/analytics-service-${{ env.NEW_VERSION }}    -n lugx --timeout=60s
-
-          echo "✅ All new version deployments are ready."
 
       # ─────────────────────────────────────────────────────────────
       # 🧪 Run Integration Tests
@@ -114,25 +106,24 @@ jobs:
           python3 tests/test_api.py --target ${{ env.NEW_VERSION }} --base-url http://192.168.8.240
 
       # ─────────────────────────────────────────────────────────────
-      # 🚦 Switch Traffic: Blue ↔ Green
+      # 🚦 Switch Traffic to New Version
       # ─────────────────────────────────────────────────────────────
-      - name: Switch Services to New Version
+      - name: Switch Services to ${{ env.NEW_VERSION }}
         env:
           KUBECONFIG_DATA: ${{ secrets.KUBE_CONFIG }}
         run: |
           echo "$KUBECONFIG_DATA" | base64 -d > ./kubeconfig
           export KUBECONFIG=./kubeconfig
 
-          # Patch all services to point to new version
           kubectl patch service frontend-service     -n lugx -p '{"spec":{"selector":{"version":"${{ env.NEW_VERSION }}"}}}'
           kubectl patch service game-service         -n lugx -p '{"spec":{"selector":{"version":"${{ env.NEW_VERSION }}"}}}'
           kubectl patch service order-service        -n lugx -p '{"spec":{"selector":{"version":"${{ env.NEW_VERSION }}"}}}'
           kubectl patch service analytics-service    -n lugx -p '{"spec":{"selector":{"version":"${{ env.NEW_VERSION }}"}}}'
 
-          echo "✅ Traffic switched to ${{ env.NEW_VERSION }} version"
+          echo "✅ Traffic switched to ${{ env.NEW_VERSION }}"
 
       # ─────────────────────────────────────────────────────────────
-      # 🗑️ Optional: Scale Down Old Version (Keep for Rollback if Needed)
+      # 🗑️ Scale Down Old Version
       # ─────────────────────────────────────────────────────────────
       - name: Scale Down Old Version
         env:
@@ -141,7 +132,6 @@ jobs:
           echo "$KUBECONFIG_DATA" | base64 -d > ./kubeconfig
           export KUBECONFIG=./kubeconfig
 
-          # Scale old deployments to 0
           kubectl scale deployment frontend-deployment-${{ env.OLD_VERSION }}   --replicas=0 -n lugx
           kubectl scale deployment game-service-${{ env.OLD_VERSION }}         --replicas=0 -n lugx
           kubectl scale deployment order-service-${{ env.OLD_VERSION }}        --replicas=0 -n lugx
