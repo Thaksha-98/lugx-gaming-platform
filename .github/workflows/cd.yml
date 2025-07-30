@@ -1,11 +1,16 @@
-name: Blue-Green CI/CD Pipeline
+name: Lugx Gaming CI/CD Pipeline (Optimized)
 
 on:
   push:
     branches: [ main ]
 
+env:
+  DOCKER_REPO: thaksha98
+  KUBE_NAMESPACE: lugx
+  GIT_SHA: ${{ github.sha }}
+
 jobs:
-  # --- Job 1: Determine Blue or Green based on run number ---
+  # --- Determine Blue or Green ---
   determine-color:
     runs-on: self-hosted
     outputs:
@@ -23,124 +28,77 @@ jobs:
             echo "old_color=blue" >> $GITHUB_OUTPUT
           fi
 
-  # --- Job 2: Deploy (depends on determine-color) ---
+  # --- Fast Build, Push & Deploy ---
   deploy:
     needs: determine-color
     runs-on: self-hosted
     env:
       NEW_VERSION: ${{ needs.determine-color.outputs.new_version }}
-      OLD_VERSION: ${{ needs.determine-color.outputs.old_version }}
-      DOCKER_REPO: thaksha98
+      OLD_VERSION: ${{ needs.determine-color.outputs.old_color }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Login to DockerHub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      # ─────────────────────────────────────────────────────────────
-      # 🔵🟢 Build and Push Images
-      # ─────────────────────────────────────────────────────────────
-      - name: Build and Push Frontend (${{ env.NEW_VERSION }})
-        uses: docker/build-push-action@v5
-        with:
-          context: frontend
-          file: frontend/Dockerfile
-          push: true
-          tags: ${{ env.DOCKER_REPO }}/lugx-frontend:${{ env.NEW_VERSION }}
-
-      - name: Build and Push Game Service (${{ env.NEW_VERSION }})
-        uses: docker/build-push-action@v5
-        with:
-          context: backend/game-service
-          file: backend/game-service/Dockerfile
-          push: true
-          tags: ${{ env.DOCKER_REPO }}/lugx-game-service:${{ env.NEW_VERSION }}
-
-      - name: Build and Push Order Service (${{ env.NEW_VERSION }})
-        uses: docker/build-push-action@v5
-        with:
-          context: backend/order-service
-          file: backend/order-service/Dockerfile
-          push: true
-          tags: ${{ env.DOCKER_REPO }}/lugx-order-service:${{ env.NEW_VERSION }}
-
-
-      - name: Build and Push Analytics Service (${{ env.NEW_VERSION }})
-        uses: docker/build-push-action@v5
-        with:
-          context: backend/analytics-service
-          file: backend/analytics-service/Dockerfile
-          push: true
-          tags: ${{ env.DOCKER_REPO }}/lugx-analytics-service:${{ env.NEW_VERSION }}
-
-
-      # ─────────────────────────────────────────────────────────────
-      # ☸️ Deploy to Kubernetes
-      # ─────────────────────────────────────────────────────────────
-      - name: Deploy New Version to Kubernetes
-        env:
-          KUBECONFIG_DATA: ${{ secrets.KUBE_CONFIG }}
         run: |
-          echo "$KUBECONFIG_DATA" | base64 -d > ./kubeconfig
-          export KUBECONFIG=./kubeconfig
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
 
-          kubectl set image deployment/frontend-deployment-${{ env.NEW_VERSION }}   frontend=${{ env.DOCKER_REPO }}/lugx-frontend:${{ env.NEW_VERSION }}   -n lugx
-          kubectl set image deployment/game-service-${{ env.NEW_VERSION }}         game-service=${{ env.DOCKER_REPO }}/lugx-game-service:${{ env.NEW_VERSION }}         -n lugx
-          kubectl set image deployment/order-service-${{ env.NEW_VERSION }}        order-service=${{ env.DOCKER_REPO }}/lugx-order-service:${{ env.NEW_VERSION }}        -n lugx
-          kubectl set image deployment/analytics-service-${{ env.NEW_VERSION }}    analytics-service=${{ env.DOCKER_REPO }}/lugx-analytics-service:${{ env.NEW_VERSION }}    -n lugx
+      - name: Build and Push All Images
+        run: |
+          # Frontend
+          docker build -t $DOCKER_REPO/lugx-frontend:$NEW_VERSION frontend/
+          docker push $DOCKER_REPO/lugx-frontend:$NEW_VERSION
 
-          kubectl rollout status deployment/frontend-deployment-${{ env.NEW_VERSION }}   -n lugx --timeout=60s
-          kubectl rollout status deployment/game-service-${{ env.NEW_VERSION }}         -n lugx --timeout=60s
-          kubectl rollout status deployment/order-service-${{ env.NEW_VERSION }}        -n lugx --timeout=60s
-          kubectl rollout status deployment/analytics-service-${{ env.NEW_VERSION }}    -n lugx --timeout=60s
+          # Game Service
+          docker build -t $DOCKER_REPO/lugx-game-service:$NEW_VERSION backend/game-service/
+          docker push $DOCKER_REPO/lugx-game-service:$NEW_VERSION
 
-      # ─────────────────────────────────────────────────────────────
-      # 🧪 Run Integration Tests
-      # ─────────────────────────────────────────────────────────────
+          # Order Service
+          docker build -t $DOCKER_REPO/lugx-order-service:$NEW_VERSION backend/order-service/
+          docker push $DOCKER_REPO/lugx-order-service:$NEW_VERSION
+
+          # Analytics Service
+          docker build -t $DOCKER_REPO/lugx-analytics-service:$NEW_VERSION backend/analytics-service/
+          docker push $DOCKER_REPO/lugx-analytics-service:$NEW_VERSION
+
+      - name: Configure KUBECONFIG
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Deploy & Switch Traffic (Blue-Green)
+        run: |
+          export NS=$KUBE_NAMESPACE
+
+          # Update images in new deployments
+          kubectl set image deployment/frontend-deployment-$NEW_VERSION   frontend=$DOCKER_REPO/lugx-frontend:$NEW_VERSION   -n $NS
+          kubectl set image deployment/game-service-$NEW_VERSION         game-service=$DOCKER_REPO/lugx-game-service:$NEW_VERSION         -n $NS
+          kubectl set image deployment/order-service-$NEW_VERSION        order-service=$DOCKER_REPO/lugx-order-service:$NEW_VERSION        -n $NS
+          kubectl set image deployment/analytics-service-$NEW_VERSION    analytics-service=$DOCKER_REPO/lugx-analytics-service:$NEW_VERSION    -n $NS
+
+          # Wait for rollouts
+          kubectl rollout status deployment/frontend-deployment-$NEW_VERSION   -n $NS --timeout=60s
+          kubectl rollout status deployment/game-service-$NEW_VERSION         -n $NS --timeout=60s
+          kubectl rollout status deployment/order-service-$NEW_VERSION        -n $NS --timeout=60s
+          kubectl rollout status deployment/analytics-service-$NEW_VERSION    -n $NS --timeout=60s
+
+          # Switch all services to new version
+          kubectl patch service frontend-service     -n $NS -p '{"spec":{"selector":{"version":"'$NEW_VERSION'"}}}'
+          kubectl patch service game-service         -n $NS -p '{"spec":{"selector":{"version":"'$NEW_VERSION'"}}}'
+          kubectl patch service order-service        -n $NS -p '{"spec":{"selector":{"version":"'$NEW_VERSION'"}}}'
+          kubectl patch service analytics-service    -n $NS -p '{"spec":{"selector":{"version":"'$NEW_VERSION'"}}}'
+
+          echo "✅ Traffic switched to $NEW_VERSION"
+
+          # Scale down old version
+          kubectl scale deployment frontend-deployment-$OLD_VERSION   --replicas=0 -n $NS
+          kubectl scale deployment game-service-$OLD_VERSION         --replicas=0 -n $NS
+          kubectl scale deployment order-service-$OLD_VERSION        --replicas=0 -n $NS
+          kubectl scale deployment analytics-service-$OLD_VERSION    --replicas=0 -n $NS
+
+          echo "🗑️ Old ($OLD_VERSION) deployments scaled down"
+
       - name: Run Integration Tests
         run: |
-          python3 tests/test_api.py --target ${{ env.NEW_VERSION }} --base-url http://192.168.8.240
-
-      # ─────────────────────────────────────────────────────────────
-      # 🚦 Switch Traffic to New Version
-      # ─────────────────────────────────────────────────────────────
-      - name: Switch Services to ${{ env.NEW_VERSION }}
-        env:
-          KUBECONFIG_DATA: ${{ secrets.KUBE_CONFIG }}
-        run: |
-          echo "$KUBECONFIG_DATA" | base64 -d > ./kubeconfig
-          export KUBECONFIG=./kubeconfig
-
-          kubectl patch service frontend-service     -n lugx -p '{"spec":{"selector":{"version":"${{ env.NEW_VERSION }}"}}}'
-          kubectl patch service game-service         -n lugx -p '{"spec":{"selector":{"version":"${{ env.NEW_VERSION }}"}}}'
-          kubectl patch service order-service        -n lugx -p '{"spec":{"selector":{"version":"${{ env.NEW_VERSION }}"}}}'
-          kubectl patch service analytics-service    -n lugx -p '{"spec":{"selector":{"version":"${{ env.NEW_VERSION }}"}}}'
-
-          echo "✅ Traffic switched to ${{ env.NEW_VERSION }}"
-
-      # ─────────────────────────────────────────────────────────────
-      # 🗑️ Scale Down Old Version
-      # ─────────────────────────────────────────────────────────────
-      - name: Scale Down Old Version
-        env:
-          KUBECONFIG_DATA: ${{ secrets.KUBE_CONFIG }}
-        run: |
-          echo "$KUBECONFIG_DATA" | base64 -d > ./kubeconfig
-          export KUBECONFIG=./kubeconfig
-
-          kubectl scale deployment frontend-deployment-${{ env.OLD_VERSION }}   --replicas=0 -n lugx
-          kubectl scale deployment game-service-${{ env.OLD_VERSION }}         --replicas=0 -n lugx
-          kubectl scale deployment order-service-${{ env.OLD_VERSION }}        --replicas=0 -n lugx
-          kubectl scale deployment analytics-service-${{ env.OLD_VERSION }}    --replicas=0 -n lugx
-
-          echo "🗑️ Old (${{ env.OLD_VERSION }}) deployments scaled down"
+          python3 tests/test_api.py --target $NEW_VERSION --base-url http://192.168.8.240
