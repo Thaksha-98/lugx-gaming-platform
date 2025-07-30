@@ -53,30 +53,36 @@ jobs:
       - name: Build and Push Frontend (${{ env.NEW_VERSION }})
         uses: docker/build-push-action@v5
         with:
+          context: frontend
+          file: frontend/Dockerfile
           push: true
           tags: ${{ env.DOCKER_REPO }}/lugx-frontend:${{ env.NEW_VERSION }}
-          context: .
 
       - name: Build and Push Game Service (${{ env.NEW_VERSION }})
         uses: docker/build-push-action@v5
         with:
-          push: true
-          tags: ${{ env.DOCKER_REPO }}/lugx-game-service:${{ env.NEW_VERSION }}
           context: backend/game-service
+          file: backend/game-service/Dockerfile
+          push: true
+          tags: ${{ env.DOCKER_REPO }}/lugx-frontend:${{ env.NEW_VERSION }}
 
       - name: Build and Push Order Service (${{ env.NEW_VERSION }})
         uses: docker/build-push-action@v5
         with:
-          push: true
-          tags: ${{ env.DOCKER_REPO }}/lugx-order-service:${{ env.NEW_VERSION }}
           context: backend/order-service
+          file: backend/order-service/Dockerfile
+          push: true
+          tags: ${{ env.DOCKER_REPO }}/lugx-frontend:${{ env.NEW_VERSION }}
+
 
       - name: Build and Push Analytics Service (${{ env.NEW_VERSION }})
         uses: docker/build-push-action@v5
         with:
-          push: true
-          tags: ${{ env.DOCKER_REPO }}/lugx-analytics-service:${{ env.NEW_VERSION }}
           context: backend/analytics-service
+          file: backend/analytics-service/Dockerfile
+          push: true
+          tags: ${{ env.DOCKER_REPO }}/lugx-frontend:${{ env.NEW_VERSION }}
+
 
       # ─────────────────────────────────────────────────────────────
       # ☸️ Deploy to Kubernetes
