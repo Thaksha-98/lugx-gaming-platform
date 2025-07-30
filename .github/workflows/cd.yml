@@ -10,7 +10,7 @@ env:
 
 jobs:
   determine-color:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     outputs:
       new_version: ${{ steps.set-color.outputs.new_color }}
       old_version: ${{ steps.set-color.outputs.old_color }}
