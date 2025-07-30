@@ -1,10 +1,9 @@
+# test_api.py
 import requests
 import sys
 import argparse
 
-def run_test(target):
-    base_url = "http://192.168.8.240"
-    
+def run_test(target, base_url):
     try:
         r = requests.get(f"{base_url}/", timeout=10)
         assert r.status_code == 200
@@ -31,5 +30,6 @@ def run_test(target):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--target', default='unknown')
+    parser.add_argument('--base-url', default='http://192.168.8.240')
     args = parser.parse_args()
-    run_test(args.target)
+    run_test(args.target, args.base_url)
