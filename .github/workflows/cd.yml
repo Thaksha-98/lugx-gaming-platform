@@ -32,9 +32,6 @@ jobs:
   deploy:
     needs: determine-color
     runs-on: self-hosted
-    env:
-      NEW_VERSION: ${{ needs.determine-color.outputs.new_version }}
-      OLD_VERSION: ${{ needs.determine-color.outputs.old_color }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -43,23 +40,25 @@ jobs:
         run: |
           echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
 
-      - name: Build and Push All Images
+      - name: Build and Push Frontend
         run: |
-          # Frontend
-          docker build -t $DOCKER_REPO/lugx-frontend:$NEW_VERSION frontend/
-          docker push $DOCKER_REPO/lugx-frontend:$NEW_VERSION
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/lugx-frontend:${{ needs.determine-color.outputs.new_version }} frontend/
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/lugx-frontend:${{ needs.determine-color.outputs.new_version }}
 
-          # Game Service
-          docker build -t $DOCKER_REPO/lugx-game-service:$NEW_VERSION backend/game-service/
-          docker push $DOCKER_REPO/lugx-game-service:$NEW_VERSION
+      - name: Build and Push Game Service
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/lugx-game-service:${{ needs.determine-color.outputs.new_version }} backend/game-service/
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/lugx-game-service:${{ needs.determine-color.outputs.new_version }}
 
-          # Order Service
-          docker build -t $DOCKER_REPO/lugx-order-service:$NEW_VERSION backend/order-service/
-          docker push $DOCKER_REPO/lugx-order-service:$NEW_VERSION
+      - name: Build and Push Order Service
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/lugx-order-service:${{ needs.determine-color.outputs.new_version }} backend/order-service/
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/lugx-order-service:${{ needs.determine-color.outputs.new_version }}
 
-          # Analytics Service
-          docker build -t $DOCKER_REPO/lugx-analytics-service:$NEW_VERSION backend/analytics-service/
-          docker push $DOCKER_REPO/lugx-analytics-service:$NEW_VERSION
+      - name: Build and Push Analytics Service
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/lugx-analytics-service:${{ needs.determine-color.outputs.new_version }} backend/analytics-service/
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/lugx-analytics-service:${{ needs.determine-color.outputs.new_version }}
 
       - name: Configure KUBECONFIG
         run: |
@@ -69,36 +68,42 @@ jobs:
 
       - name: Deploy & Switch Traffic (Blue-Green)
         run: |
-          export NS=$KUBE_NAMESPACE
+          export NS=lugx
+          export NEW_COLOR=${{ needs.determine-color.outputs.new_version }}
+          export OLD_COLOR=${{ needs.determine-color.outputs.old_version }}
+          export DOCKER_REPO=${{ secrets.DOCKERHUB_USERNAME }}
 
-          # Update images in new deployments
-          kubectl set image deployment/frontend-deployment-$NEW_VERSION   frontend=$DOCKER_REPO/lugx-frontend:$NEW_VERSION   -n $NS
-          kubectl set image deployment/game-service-$NEW_VERSION         game-service=$DOCKER_REPO/lugx-game-service:$NEW_VERSION         -n $NS
-          kubectl set image deployment/order-service-$NEW_VERSION        order-service=$DOCKER_REPO/lugx-order-service:$NEW_VERSION        -n $NS
-          kubectl set image deployment/analytics-service-$NEW_VERSION    analytics-service=$DOCKER_REPO/lugx-analytics-service:$NEW_VERSION    -n $NS
+          # Update new deployments
+          kubectl set image deployment/frontend-deployment-$NEW_COLOR   frontend=$DOCKER_REPO/lugx-frontend:$NEW_COLOR   -n $NS
+          kubectl set image deployment/game-service-$NEW_COLOR         game-service=$DOCKER_REPO/lugx-game-service:$NEW_COLOR         -n $NS
+          kubectl set image deployment/order-service-$NEW_COLOR        order-service=$DOCKER_REPO/lugx-order-service:$NEW_COLOR        -n $NS
+          kubectl set image deployment/analytics-service-$NEW_COLOR    analytics-service=$DOCKER_REPO/lugx-analytics-service:$NEW_COLOR    -n $NS
 
           # Wait for rollouts
-          kubectl rollout status deployment/frontend-deployment-$NEW_VERSION   -n $NS --timeout=60s
-          kubectl rollout status deployment/game-service-$NEW_VERSION         -n $NS --timeout=60s
-          kubectl rollout status deployment/order-service-$NEW_VERSION        -n $NS --timeout=60s
-          kubectl rollout status deployment/analytics-service-$NEW_VERSION    -n $NS --timeout=60s
+          kubectl rollout status deployment/frontend-deployment-$NEW_COLOR   -n $NS --timeout=60s
+          kubectl rollout status deployment/game-service-$NEW_COLOR         -n $NS --timeout=60s
+          kubectl rollout status deployment/order-service-$NEW_COLOR        -n $NS --timeout=60s
+          kubectl rollout status deployment/analytics-service-$NEW_COLOR    -n $NS --timeout=60s
 
-          # Switch all services to new version
-          kubectl patch service frontend-service     -n $NS -p '{"spec":{"selector":{"version":"'$NEW_VERSION'"}}}'
-          kubectl patch service game-service         -n $NS -p '{"spec":{"selector":{"version":"'$NEW_VERSION'"}}}'
-          kubectl patch service order-service        -n $NS -p '{"spec":{"selector":{"version":"'$NEW_VERSION'"}}}'
-          kubectl patch service analytics-service    -n $NS -p '{"spec":{"selector":{"version":"'$NEW_VERSION'"}}}'
+          # Switch services to new version
+          kubectl patch service frontend-service     -n $NS -p "{\"spec\":{\"selector\":{\"version\":\"$NEW_COLOR\"}}}"
+          kubectl patch service game-service         -n $NS -p "{\"spec\":{\"selector\":{\"version\":\"$NEW_COLOR\"}}}"
+          kubectl patch service order-service        -n $NS -p "{\"spec\":{\"selector\":{\"version\":\"$NEW_COLOR\"}}}"
+          kubectl patch service analytics-service    -n $NS -p "{\"spec\":{\"selector\":{\"version\":\"$NEW_COLOR\"}}}"
 
-          echo "✅ Traffic switched to $NEW_VERSION"
+          echo "✅ Traffic switched to $NEW_COLOR"
 
           # Scale down old version
-          kubectl scale deployment frontend-deployment-$OLD_VERSION   --replicas=0 -n $NS
-          kubectl scale deployment game-service-$OLD_VERSION         --replicas=0 -n $NS
-          kubectl scale deployment order-service-$OLD_VERSION        --replicas=0 -n $NS
-          kubectl scale deployment analytics-service-$OLD_VERSION    --replicas=0 -n $NS
-
-          echo "🗑️ Old ($OLD_VERSION) deployments scaled down"
+          if [ -n "$OLD_COLOR" ]; then
+            kubectl scale deployment frontend-deployment-$OLD_COLOR   --replicas=0 -n $NS
+            kubectl scale deployment game-service-$OLD_COLOR         --replicas=0 -n $NS
+            kubectl scale deployment order-service-$OLD_COLOR        --replicas=0 -n $NS
+            kubectl scale deployment analytics-service-$OLD_COLOR    --replicas=0 -n $NS
+            echo "🗑️ Old ($OLD_COLOR) deployments scaled down"
+          else
+            echo "🟡 No old version to scale down (first deploy)"
+          fi
 
       - name: Run Integration Tests
         run: |
-          python3 tests/test_api.py --target $NEW_VERSION --base-url http://192.168.8.240
+          python3 tests/test_api.py --target ${{ needs.determine-color.outputs.new_version }} --base-url http://192.168.8.240
