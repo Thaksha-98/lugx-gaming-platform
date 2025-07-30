@@ -79,10 +79,10 @@ jobs:
           kubectl set image deployment/analytics-service-$NEW_VERSION analytics-service=$DOCKER_REPO/lugx-analytics-service:$NEW_VERSION -n $NS
 
           # Wait for rollouts
-          kubectl rollout status deployment/frontend-deployment-$NEW_VERSION -n $NS --timeout=60s
-          kubectl rollout status deployment/game-service-$NEW_VERSION -n $NS --timeout=60s
-          kubectl rollout status deployment/order-service-$NEW_VERSION -n $NS --timeout=60s
-          kubectl rollout status deployment/analytics-service-$NEW_VERSION -n $NS --timeout=60s
+          kubectl rollout status deployment/frontend-deployment-$NEW_VERSION -n $NS --timeout=180s
+          kubectl rollout status deployment/game-service-$NEW_VERSION -n $NS --timeout=180s
+          kubectl rollout status deployment/order-service-$NEW_VERSION -n $NS --timeout=180s
+          kubectl rollout status deployment/analytics-service-$NEW_VERSION -n $NS --timeout=180s
 
           # Switch traffic
           kubectl patch service frontend-service -n $NS -p '{"spec":{"selector":{"version":"'$NEW_VERSION'"}}}'
